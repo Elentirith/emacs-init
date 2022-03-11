@@ -31,12 +31,14 @@
       doc-view-continuous t
       gc-cons-threshold 32000000)
 
-(load custom-file)  ; Normally fonts and melpa packages
+(or (load custom-file t) (message "Couldn't load custom file"))  ; Normally fonts and melpa packages
 (set-cursor-color "#000040")
 (save-place-mode 1)            ; Return to place in file when reopening
 
-(menu-bar-mode 1)      ; Toggle modes with arg +- 1
+
+(size-indication-mode 1)
 (column-number-mode 1)
+(recentf-mode 1)
 (global-hl-line-mode 1) 
 
 (setq-default indent-tabs-mode nil)
@@ -48,13 +50,15 @@
     (global-hi-lock-mode 1)
   (hi-lock-mode 1))
 
-;; Check if it's defined before calling since it's not builtin
-(if (functionp 'bar-cursor-mode) (bar-cursor-mode)
-  (message "bar-cursor-mode not present, skipping..."))
-                                        
+;; Checking for gui or terminal doesn't make much sense here because a single emacs 
+;; instance can have both. Better to add gui specific functions to hooks per frame.
+(add-hook 'server-after-make-frame-hook
+  (lambda ()
+     (print "warchief")
+;     (select-frame x)
+     (setq cursor-type 'bar )))
 
-(setq default-frame-alist '((font . "Bitstream Vera Sans Mono-16")))
-
+;; Prevents extra buffers from being created.
 (add-to-list 'same-window-buffer-names "*Buffer List*")
 (add-to-list 'same-window-buffer-names "*info*")
 
@@ -72,7 +76,39 @@
 
 (add-to-list 'auto-mode-alist '("\\.el\\'" . emacs-lisp-mode))
 
+;; OS-specific setup, like fonts or enabling the backspace key on bsd
+(cond
+ ((eq system-type 'gnu/linux)
+  (setq default-frame-alist '((font . "Bitstream Vera Sans Mono")))
+;   (setq default-frame-alist '( (font-backend "xft")))
+)
+ ((eq system-type 'darwin)) ;;TODO maybe add the $PATH fix here for zsh/macos
+ ((eq system-type 'windows-nt)
+  (setq default-frame-alist '((font . "DejaVu Sans Mono")))
+)
+ ((eq system-type 'berkeley-unix)
+  (normal-erase-is-backspace-mode))
+ )
+ 
+(message "Beginning advanced startup...")
+
 ;;;# Advanced Startup
+     (defun message-status (STRING STATUS)
+      "Print a color status indicator to *Messages* using cheap hacks. \
+         + for success, - for failure, 0 for skip"
+      (with-current-buffer (get-buffer "*Messages*")
+       (save-excursion
+        (goto-char (point-max))
+        (let ((inhibit-read-only t) (message-log-max nil))
+         (insert "\n")
+         (insert
+          (cond
+           ((< 0 STATUS) (format "[%s] %s" (propertize "+" 'font-lock-face '(:foreground "green")) STRING))
+           ((= 0 STATUS) (format "[%s] %s" (propertize "0" 'font-lock-face '(:foreground "blue")) STRING))
+           ((> 0 STATUS) (format "[%s] %s" (propertize "-" 'font-lock-face '(:foreground "red")) STRING))))
+         (insert "\n")))))
+
+
 
 (require 'cl-lib)       ;May as well use Common Lisp now
 (setq enable-recursive-minibuffers t)
@@ -87,7 +123,7 @@
 ;;         do (load file t))
 
 
-(if (load "fci" t)    (fci-mode)   (message "fci mode not present, skipping..."))
+(message-status "fci-mode.el load" (if (load "fci" t) 1 -1))
 
 ;;Enable outline-mode commands for this file
 (add-hook 'outline-minor-mode-hook (lambda () (setq outline-regexp ";;;\\*")))
@@ -114,6 +150,30 @@
 			    (when (fboundp 'horizontal-scroll-bar-mode)
 			      (horizontal-scroll-bar-mode -1))
                             (setq-default truncate-lines t))))
+
+;;Change default dired behavior to be more like ncdu
+;; M-up/down/left/right navigates withotu creating new buffers
+;; TODO: Need to do (define-key esc-map (kbd "<right>") ..) to get this working in
+;; terminals. Figure out how to adapt this for terminal mode?
+
+(add-hook 'dired-load-hook (lambda () (interactive)
+                             (define-key dired-mode-map (kbd "M-<up>") 'dired-previous-line)
+                             (define-key dired-mode-map (kbd "M-<left>")
+                               (lambda () (interactive) (set-buffer-modified-p nil)
+                               (find-alternate-file "..")))
+                             (define-key dired-mode-map
+                               (kbd "M-<right>") (lambda () 
+                               (interactive)
+                                                   (let ((file (dired-get-file-for-visit)))
+                                                     (if (file-directory-p file)
+	                                                 (or (and (cdr dired-subdir-alist)
+		                                                  (dired-goto-subdir file))
+	                                                     (dired-find-alternate-file))
+                                                       (view-file file)))
+                                                   ))
+                             (define-key dired-mode-map (kbd "M-<down>") 'dired-next-line)
+                             ))
+
 
 ;;Swap regular and regexp search when programming
 (add-hook 'find-file-hook (lambda ()
@@ -238,16 +298,16 @@
 
 
 ;;Highlight defined elisp func and var
-(if (require 'hl-defined nil t)
-    (progn
+(message-status "hl-defined.el load" (if (load "hl-defined" t) 1 -1))
+
+(when (featurep 'hl-defined)
     ;(add-hook 'emacs-lisp-mode-hook 'hdefd-highlight-mode 'APPEND)
       (set-face-attribute 'hdefd-functions nil :foreground "orange3")
       (set-face-attribute 'hdefd-variables nil :foreground "#00a020")
       (set-face-attribute 'hdefd-undefined nil :foreground "blue3"))
-  (message "failed to load hl-defined, continuing..."))
 
 
-
+(message "Defining keybindings...")
 ;;;# Keybindings
 
 (global-set-key (kbd "C-S-s") 'isearch-forward-symbol-at-point)
@@ -403,3 +463,4 @@
           (error)))))))
 
 
+(message "Finished loading init.el")
