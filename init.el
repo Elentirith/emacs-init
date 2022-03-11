@@ -54,7 +54,6 @@
 ;; instance can have both. Better to add gui specific functions to hooks per frame.
 (add-hook 'server-after-make-frame-hook
   (lambda ()
-     (print "warchief")
 ;     (select-frame x)
      (setq cursor-type 'bar )))
 
